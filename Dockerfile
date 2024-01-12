@@ -1,29 +1,28 @@
+FROM alpine:latest as base
+ENV TAC_PLUS_BIN=/tacacs/sbin/tac_plus
+ENV CONF_FILE=/etc/tac_plus/tac_plus.cfg
 
-# imagem base 
-FROM ubuntu:bionic
 
-# Atualiza a imagem e instala pacotes necessários e desinstala desnecessários. 
+FROM base as build
+RUN apk add --no-cache \
+    build-base bzip2 perl perl-digest-md5 perl-ldap
+ADD http://www.pro-bono-publico.de/projects/src/DEVEL.$VERSION.tar.bz2 /tac_plus.tar.bz2
+ADD http://www.pro-bono-publico.de/projects/unpacked/mavis/perl/mavis_tacplus_radius.pl /mavis_tacplus_radius.pl
+RUN tar -xjf /tac_plus.tar.bz2 && \
+    cd /PROJECTS && \
+    ./configure --prefix=/tacacs && \
+    make && \
+    make install
 
-RUN apt-get update && \
-    apt install -y tacacs+ && \
-    apt-get clean
 
-# Aponta a porta 49 
+FROM base
+COPY --from=build /tacacs /tacacs
+COPY --from=build /mavis_tacplus_radius.pl /usr/local/lib/mavis_tacplus_radius.pl
+COPY tac_base.cfg $CONF_FILE
+COPY tac_user.cfg /etc/tac_plus/tac_user.cfg
+COPY entrypoint.sh /entrypoint.sh 
+
+RUN apk add --no-cache perl perl-digest-md5 perl-ldap && \
+    chmod u+x /entrypoint.sh
 EXPOSE 49
-
-ENV DEBUGLEVEL=32
-
-#ENTRYPOINT Comando para inicializar o servidor TACACS+ 
-ENTRYPOINT /usr/sbin/tac_plus -G -t -d ${DEBUGLEVEL} -C /etc/tacacs+/tac_plus.conf
-
-# Comando para construir a imagem:
-#       docker build --no-cache -t tacplus . 
-# --no-cache > ignora camadas em cachê durante o processo de construcao
-
-#Comando para execução. Aponta para o tac_plus.conf que está junto do Dockerfile, podendo ser atualizado conforme necessidade.
-#Necessário apontar o caminho correto caso utilize outro arquivo. 
-# $(pwd) aponta para o caminho atual do arquivo em execução. 
-
-# docker run -td --name tacplus -p 49:49 -e DEBUGLEVEL=64 \
-#       -v $(pwd)/tac_plus.conf:/etc/tacacs+/tac_plus.conf \
-#       tacplus
+ENTRYPOINT ["/entrypoint.sh"]
